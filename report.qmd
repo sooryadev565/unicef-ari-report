@@ -1,0 +1,229 @@
+---
+title: "Breathing Without Help"
+subtitle: "ARI Child Health Care-Seeking Across the World"
+author: "Sooryadev Suresh"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    theme: cosmo
+    toc: true
+execute:
+  warning: false
+  message: false
+jupyter: python3
+---
+
+## Introduction
+
+Children under the age of five are still affected by acute respiratory infections (ARI), which continue to be a primary source of disease for this age group. Access to health care for children who have ARIs varies dramatically from one country to another.
+
+In order to assess the inequity that exists when it comes to seeking medical treatment for ARI, we will use UNICEF's data with an emphasis on looking at the difference globally; how much does the level of economic development impact the ability of parents to seek medical treatment for their children who suffer from ARI; and changes in the way that parents seek medical treatment for their children suffering from ARI over time.
+
+---
+
+## Load libraries
+
+```{python}
+import pandas as pd
+import numpy as np
+from plotnine import *
+```
+
+---
+
+## Load the data
+
+```{python}
+indicator = pd.read_csv("unicef_indicator_1.csv")
+metadata = pd.read_csv("unicef_metadata.csv")
+```
+
+---
+
+## Prepare the ARI dataset
+
+```{python}
+ari = indicator.copy()
+
+ari = ari.rename(columns={
+    "time_period": "year",
+    "obs_value": "care_rate"
+})
+
+ari["year"] = pd.to_numeric(ari["year"], errors="coerce")
+ari["care_rate"] = pd.to_numeric(ari["care_rate"], errors="coerce")
+
+if "sex" in ari.columns and "Total" in ari["sex"].astype(str).unique():
+    ari = ari[ari["sex"] == "Total"]
+
+ari = ari.dropna(subset=["country", "alpha_3_code", "year", "care_rate"])
+ari["year"] = ari["year"].astype(int)
+```
+
+---
+
+## Prepare the metadata
+
+```{python}
+gdp = metadata[[
+    "country",
+    "alpha_3_code",
+    "year",
+    "GDP per capita (constant 2015 US$)"
+]].copy()
+
+gdp = gdp.rename(columns={
+    "GDP per capita (constant 2015 US$)": "gdp_per_capita"
+})
+
+gdp["year"] = pd.to_numeric(gdp["year"], errors="coerce")
+gdp["gdp_per_capita"] = pd.to_numeric(gdp["gdp_per_capita"], errors="coerce")
+
+gdp = gdp.dropna(subset=["country", "alpha_3_code", "year"])
+gdp["year"] = gdp["year"].astype(int)
+```
+
+---
+
+## Merge the datasets
+
+```{python}
+df = ari.merge(
+    gdp,
+    on=["country", "alpha_3_code", "year"],
+    how="left"
+)
+```
+
+---
+
+## Latest available value for each country
+
+```{python}
+latest = (
+    df.sort_values(["country", "year"])
+      .drop_duplicates(subset="country", keep="last")
+      .copy()
+)
+```
+
+---
+
+## 1. Countries with highest and lowest care-seeking rates
+
+This chart compares countries with the highest and lowest ARI care-seeking rates.
+
+```{python}
+top10 = latest.nlargest(10, "care_rate")
+bottom10 = latest.nsmallest(10, "care_rate")
+bar_df = pd.concat([top10, bottom10]).sort_values("care_rate")
+
+(
+    ggplot(bar_df, aes(x="reorder(country, care_rate)", y="care_rate"))
+    + geom_col(fill="steelblue")
+    + coord_flip()
+    + labs(
+        title="Countries with the Highest and Lowest ARI Care-Seeking Rates",
+        x="Country",
+        y="Care-seeking rate (%)"
+    )
+    + theme_minimal()
+)
+```
+
+The large gap between countries highlights the unequal access to healthcare services globally.
+
+---
+
+## 2. GDP per capita and ARI care-seeking
+
+This scatterplot examines whether wealthier countries have better access to healthcare.
+
+```{python}
+scatter_df = df.dropna(subset=["gdp_per_capita", "care_rate"]).copy()
+
+# Select a few countries to label (top + bottom performers)
+label_df = pd.concat([
+    scatter_df.nlargest(5, "care_rate"),
+    scatter_df.nsmallest(5, "care_rate")
+])
+
+(
+    ggplot(scatter_df, aes(x="gdp_per_capita", y="care_rate"))
+    + geom_point(alpha=0.5)
+    + geom_smooth(method="lm", se=False)
+    + geom_text(
+        data=label_df,
+        mapping=aes(label="country"),
+        size=7,
+        ha="left",
+        nudge_x=200
+    )
+    + labs(
+        title="GDP per Capita and ARI Care-Seeking",
+        x="GDP per capita (constant 2015 US$)",
+        y="Care-seeking rate (%)"
+    )
+    + theme_minimal()
+)
+
+```
+
+The upward trend suggests that higher-income countries generally have better access to healthcare, although the relationship is not perfect.
+
+---
+
+## 3. Average trend over time
+
+This chart shows how global care-seeking rates have changed over time.
+
+```{python}
+trend = df.groupby("year", as_index=False)["care_rate"].mean()
+
+(
+    ggplot(trend, aes(x="year", y="care_rate"))
+    + geom_line()
+    + geom_point()
+    + labs(
+        title="Average ARI Care-Seeking Rate Over Time",
+        x="Year",
+        y="Average care-seeking rate (%)"
+    )
+    + theme_minimal()
+)
+```
+
+The trend shows fluctuations over time, indicating that improvements in healthcare access are not consistent across years.
+
+---
+
+## 4. Country snapshot
+
+This chart focuses on the 20 countries with the lowest most recent ARI care-seeking rates, making cross-country differences easier to read.
+
+```{python}
+snapshot20 = latest.nsmallest(20, "care_rate").sort_values("care_rate")
+
+(
+    ggplot(snapshot20, aes(x="reorder(country, care_rate)", y="care_rate"))
+    + geom_col(fill="darkgreen")
+    + coord_flip()
+    + labs(
+        title="20 Countries with the Lowest Most Recent ARI Care-Seeking Rates",
+        x="Country",
+        y="Care-seeking rate (%)"
+    )
+    + theme_minimal()
+)
+```
+
+This focused view makes the countries with the weakest recent care-seeking outcomes easier to identify and compare.
+
+---
+
+## Conclusion
+
+The data indicates that country-specific levels of ARI care-seeking are highly variable. Higher income countries generally provide greater access to healthcare than do lower-income countries; however, the level of a country's economic development is an insufficient explanation for the differences observed in this study.
+
+Global care-seeking trends indicate some positive trends over time, although disparities continue to exist. These results suggest the need for specific, evidence-based policy interventions as well as increased availability and accessibility of health-care services to address the disparity in child health outcomes.
